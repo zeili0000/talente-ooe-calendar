@@ -1,0 +1,20 @@
+[project]
+name = "talente-ooe-calendar"
+version = "0.1.0"
+description = "Curated Notion-backed RFC-5545 calendar feeds & personalized configurator for Talente OÖ, Olympiads, and STEM events."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27.0",
+    "icalendar>=6.0.0",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

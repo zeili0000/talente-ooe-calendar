@@ -1,0 +1,15 @@
+name: Keep scheduled workflows active
+
+on:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: gautamkrishnar/keepalive-workflow@v2
