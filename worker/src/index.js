@@ -222,11 +222,34 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
   return lines.map(foldLine).join("\r\n") + "\r\n";
 }
 
+export function parseParamsFromUrl(url) {
+  const m = url.pathname.match(/^\/cal\/g([^/]+)\/d([^/]+)\/([^/]+)\.ics$/i);
+  if (m) {
+    const params = new URLSearchParams();
+    if (m[1].toLowerCase() !== "all") params.set("grade", m[1]);
+    params.set("deadlines", m[2].toLowerCase());
+    if (m[3].toLowerCase() !== "all") {
+      params.set("cats", decodeURIComponent(m[3]).replace(/\+/g, ","));
+    }
+    return params;
+  }
+  return url.searchParams;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
       return new Response("ok", { status: 200 });
+    }
+    const headers = {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'inline; filename="talente-ooe-personal.ics"',
+      "Cache-Control": "public, max-age=900",
+      "Access-Control-Allow-Origin": "*",
+    };
+    if (request.method === "HEAD") {
+      return new Response(null, { status: 200, headers });
     }
     if (!env.EVENTS_JSON_URL) {
       return new Response("Missing EVENTS_JSON_URL env var", { status: 500 });
@@ -238,15 +261,11 @@ export default {
       return new Response(`Upstream error: ${upstream.status}`, { status: 502 });
     }
     const eventsData = await upstream.json();
-    const icsBody = generateIcsFromEvents(eventsData, url.searchParams);
+    const params = parseParamsFromUrl(url);
+    const icsBody = generateIcsFromEvents(eventsData, params);
     return new Response(icsBody, {
       status: 200,
-      headers: {
-        "Content-Type": "text/calendar; charset=utf-8",
-        "Content-Disposition": 'inline; filename="talente-ooe-personal.ics"',
-        "Cache-Control": "public, max-age=900",
-        "Access-Control-Allow-Origin": "*",
-      },
+      headers,
     });
   },
 };

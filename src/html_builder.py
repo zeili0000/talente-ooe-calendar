@@ -356,11 +356,10 @@ def build_index_html(
         return deadlines === "1" ? `${{pageBase}}/all-mit-fristen.ics` : `${{pageBase}}/all.ics`;
       }}
       workerNotice.hidden = true;
-      const url = new URL(`${{DATA.worker_base_url}}/feed.ics`);
-      if (grade !== null) url.searchParams.set("grade", String(grade));
-      if (cats.size > 0) url.searchParams.set("cats", [...cats].join(","));
-      if (deadlines !== "0") url.searchParams.set("deadlines", deadlines);
-      return url.toString();
+      const gPart = grade !== null ? `g${{grade}}` : "gall";
+      const dPart = `d${{deadlines}}`;
+      const cPart = cats.size > 0 ? [...cats].join("+") : "all";
+      return `${{DATA.worker_base_url}}/cal/${{gPart}}/${{dPart}}/${{cPart}}.ics`;
     }}
 
     function update() {{
@@ -368,8 +367,9 @@ def build_index_html(
       const deadlines = deadlineSelect.value;
       const url = buildUrl(grade, selectedCats, deadlines);
       feedUrlInput.value = url;
-      webcalBtn.href = url.replace(/^https?:\\/\\//, "webcal://");
-      gcalBtn.href = `https://calendar.google.com/calendar/r?cid=${{encodeURIComponent(url)}}`;
+      const webcalUrl = url.replace(/^https?:\\/\\//, "webcal://");
+      webcalBtn.href = webcalUrl;
+      gcalBtn.href = `https://calendar.google.com/calendar/r?cid=${{encodeURIComponent(webcalUrl)}}`;
 
       const filtered = DATA.events.filter((ev) => matches(ev, grade, selectedCats));
       previewCount.textContent = String(filtered.length);
