@@ -229,7 +229,7 @@ export function parseParamsFromUrl(url) {
     if (m[1].toLowerCase() !== "all") params.set("grade", m[1]);
     params.set("deadlines", m[2].toLowerCase());
     if (m[3].toLowerCase() !== "all") {
-      params.set("cats", decodeURIComponent(m[3]).replace(/\+/g, ","));
+      params.set("cats", decodeURIComponent(m[3]).replace(/[_+]/g, ","));
     }
     return params;
   }
@@ -241,6 +241,12 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
       return new Response("ok", { status: 200 });
+    }
+    if (url.pathname === "/robots.txt") {
+      return new Response("User-agent: *\nAllow: /\n", {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
     }
     const headers = {
       "Content-Type": "text/calendar; charset=utf-8",

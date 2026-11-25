@@ -172,7 +172,7 @@ def test_cloudflare_worker_rfc5545_parity(tmp_path: Path) -> None:
         f"import fs from 'node:fs';"
         f"import {{ generateIcsFromEvents, parseParamsFromUrl }} from '{worker_path}';"
         f"const data = JSON.parse(fs.readFileSync({json.dumps(str(events_json_path))}, 'utf8'));"
-        f"const params = parseParamsFromUrl(new URL('https://example.workers.dev/cal/g11/d1/talente-ooe+olympiade-mathe.ics'));"
+        f"const params = parseParamsFromUrl(new URL('https://example.workers.dev/cal/g11/d1/talente-ooe_olympiade-mathe.ics'));"
         f"process.stdout.write(generateIcsFromEvents(data, params));"
     )
     proc = subprocess.run(

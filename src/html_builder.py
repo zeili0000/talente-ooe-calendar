@@ -358,7 +358,7 @@ def build_index_html(
       workerNotice.hidden = true;
       const gPart = grade !== null ? `g${{grade}}` : "gall";
       const dPart = `d${{deadlines}}`;
-      const cPart = cats.size > 0 ? [...cats].join("+") : "all";
+      const cPart = cats.size > 0 ? [...cats].join("_") : "all";
       return `${{DATA.worker_base_url}}/cal/${{gPart}}/${{dPart}}/${{cPart}}.ics`;
     }}
 
