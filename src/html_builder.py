@@ -281,12 +281,25 @@ def build_index_html(
     </section>
 
     <section class="card">
-      <h2>3. So abonnierst du den Kalender (aktualisiert sich automatisch)</h2>
+      <h2>3. So funktioniert's &amp; so abonnierst du den Kalender</h2>
+      <p style="margin: 0 0 0.65rem; color: var(--muted);">
+        <strong>Kurz erklärt (3 Schritte):</strong>
+        (1) Oben Schulstufe, Region, Fristen-Modus und Interessen auswählen (unten siehst du live alle passenden Termine).
+        (2) Direkt auf <strong>Google Calendar</strong> bzw. <strong>Apple / Outlook</strong> klicken - oder die URL kopieren.
+        (3) Der Kalender erscheint als <strong>eigener, ein-/ausblendbarer Kalender</strong> mit eigener Farbe neben deinen privaten Terminen.
+      </p>
+      <p style="margin: 0.75rem 0 0.35rem;"><strong>Manuelles Hinzufügen (falls der 1-Klick-Button klemmt):</strong></p>
       <ol>
-        <li><strong>Google Calendar (Web):</strong> Linke Leiste bei „Weitere Kalender“ auf <strong>+</strong> → „Per URL“ → kopierte URL einfügen.</li>
-        <li><strong>Apple Calendar (iPhone / Mac):</strong> Auf „Apple / Outlook“ tippen oder Ablage → „Neues Kalenderabonnement“.</li>
-        <li><strong>Outlook:</strong> Kalender hinzufügen → „Aus dem Web abonnieren“ → URL einfügen.</li>
+        <li><strong>Google Calendar (Web, am PC oder im mobilen Browser in Desktop-Ansicht):</strong> Links bei „Weitere Kalender“ auf <strong>+</strong> → „Per URL“ → kopierte URL einfügen → „Kalender hinzufügen“. <em>(Tipp: In der Handy-App taucht er danach automatisch auf - ggf. in den App-Einstellungen kurz anhaken.)</em></li>
+        <li><strong>Apple Calendar (iPhone / iPad / Mac):</strong> Auf „Apple / Outlook“ tippen → „Abonnieren“ bestätigen (oder am Mac: Ablage → „Neues Kalenderabonnement“).</li>
+        <li><strong>Outlook (Web / App):</strong> Kalender hinzufügen → „Aus dem Web abonnieren“ → kopierte URL einfügen.</li>
       </ol>
+      <p style="margin: 0.9rem 0 0.35rem;"><strong>Gut zu wissen:</strong></p>
+      <ul style="margin: 0; padding-left: 1.25rem; color: var(--muted);">
+        <li><strong style="color: var(--text);">Automatische Updates:</strong> Neue Termine und Änderungen synchronisieren sich von selbst (Apple/Outlook meist nach wenigen Stunden; Google Calendar aktualisiert abonnierte URLs leider nur alle 12-24 Stunden).</li>
+        <li><strong style="color: var(--text);">Fristen &amp; Labels:</strong> <code>[FRIST]</code> markiert Anmeldeschlüsse; <code>[ABGESAGT]</code> markiert abgesagte Events; mehrwöchige Kursreihen stehen nur als Auftakttermin drin (alle Einzeltermine stehen in der Beschreibung).</li>
+        <li><strong style="color: var(--text);">Filter später ändern:</strong> Einfach hier eine neue URL generieren, neu abonnieren und den alten Abo-Kalender entfernen.</li>
+      </ul>
     </section>
 
     <section class="card">
