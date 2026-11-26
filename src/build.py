@@ -15,6 +15,20 @@ from src.ics_builder import build_calendar, slugify_category
 from src.notion_client import EventRecord, fetch_database_schema, fetch_events
 
 
+def region_slug(region: str) -> str:
+    """Map Notion Region select value to compact Worker filter slug."""
+    norm = (region or "").strip().lower()
+    if not norm:
+        return ""
+    if "oö" in norm or "ooe" in norm or "online" in norm:
+        return "ooe"
+    if "österreich" in norm or norm == "at":
+        return "at"
+    if "international" in norm or norm == "intl":
+        return "intl"
+    return slugify_category(region)
+
+
 def _event_to_json(ev: EventRecord) -> dict[str, object]:
     return {
         "page_id": ev.page_id,
@@ -34,6 +48,8 @@ def _event_to_json(ev: EventRecord) -> dict[str, object]:
         "description": ev.description,
         "deadline": ev.deadline,
         "create_deadline_event": ev.create_deadline_event,
+        "region": ev.region,
+        "region_slug": region_slug(ev.region),
     }
 
 
@@ -67,28 +83,28 @@ def build_dist(
     """Generate all static .ics feeds, events.json, and index.html in dist_dir."""
     dist_dir.mkdir(parents=True, exist_ok=True)
     now_utc = datetime.now(timezone.utc)
+    sorted_events = sorted(events, key=lambda e: (e.datum_start or e.deadline or "9999-12-31", e.name.lower()))
 
-    # Combine schema options with any category present on events, preserving schema order
     ordered_cats: list[str] = list(schema_categories)
-    for ev in events:
+    for ev in sorted_events:
         for cat in ev.categories:
             if cat not in ordered_cats:
                 ordered_cats.append(cat)
 
     (dist_dir / "all.ics").write_bytes(
-        build_calendar(events, "Talente OÖ & MINT Kalender", include_deadlines=False, now_utc=now_utc)
+        build_calendar(sorted_events, "Talente OÖ & MINT Kalender", include_deadlines=False, now_utc=now_utc)
     )
     (dist_dir / "all-mit-fristen.ics").write_bytes(
-        build_calendar(events, "Talente OÖ & MINT (inkl. Fristen)", include_deadlines=True, now_utc=now_utc)
+        build_calendar(sorted_events, "Talente OÖ & MINT (inkl. Fristen)", include_deadlines=True, now_utc=now_utc)
     )
     (dist_dir / "fristen.ics").write_bytes(
-        build_calendar(events, "Talente OÖ & MINT - Anmeldefristen", deadlines_only=True, now_utc=now_utc)
+        build_calendar(sorted_events, "Talente OÖ & MINT - Anmeldefristen", deadlines_only=True, now_utc=now_utc)
     )
 
     cat_summaries: list[dict[str, object]] = []
     for cat_name in ordered_cats:
         slug = slugify_category(cat_name)
-        matching = [ev for ev in events if cat_name in ev.categories]
+        matching = [ev for ev in sorted_events if cat_name in ev.categories]
         (dist_dir / f"{slug}.ics").write_bytes(
             build_calendar(matching, f"Kalender: {cat_name}", include_deadlines=False, now_utc=now_utc)
         )
@@ -97,7 +113,7 @@ def build_dist(
     events_payload = {
         "generated_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "categories": cat_summaries,
-        "events": [_event_to_json(ev) for ev in events],
+        "events": [_event_to_json(ev) for ev in sorted_events],
     }
     (dist_dir / "events.json").write_text(
         json.dumps(events_payload, ensure_ascii=False, indent=2),

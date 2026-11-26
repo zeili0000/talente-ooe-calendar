@@ -49,6 +49,8 @@ def _build_description(ev: EventRecord) -> str:
         lines.append(f"Kosten: {ev.cost}")
     if ev.organizer:
         lines.append(f"Veranstalter: {ev.organizer}")
+    if ev.region:
+        lines.append(f"Region: {ev.region}")
     if ev.categories:
         lines.append(f"Kategorien: {', '.join(ev.categories)}")
     if ev.description:
@@ -76,6 +78,7 @@ def _create_main_vevent(
     now_utc: datetime,
     default_duration_hours: int,
 ) -> Event:
+    assert ev.datum_start is not None
     vevent = Event()
     vevent.add("uid", f"{ev.page_id}@{UID_DOMAIN}")
     vevent.add("dtstamp", now_utc)
@@ -135,19 +138,27 @@ def _create_deadline_vevent(ev: EventRecord, now_utc: datetime) -> Event | None:
     vevent.add("dtstart", d)
     vevent.add("dtend", d + timedelta(days=1))
 
-    lines = [
-        f"Anmeldeschluss für: {ev.name}",
-        f"Veranstaltungstermin: {format_iso_date_de(ev.datum_start)}",
-    ]
+    lines = [f"Anmeldeschluss für: {ev.name}"]
+    if ev.datum_start:
+        lines.append(f"Veranstaltungstermin: {format_iso_date_de(ev.datum_start)}")
     if ev.grade_min is not None and ev.grade_max is not None:
         lines.append(f"Schulstufe: {ev.grade_min}.-{ev.grade_max}. Schulstufe")
     if ev.organizer:
         lines.append(f"Veranstalter: {ev.organizer}")
+    if ev.region:
+        lines.append(f"Region: {ev.region}")
+    if ev.description and not ev.datum_start:
+        lines.append("")
+        lines.append(ev.description)
     if ev.link:
         lines.append(f"Anmeldung: {ev.link}")
     vevent.add("description", "\n".join(lines))
+    if ev.location:
+        vevent.add("location", ev.location)
     if ev.link:
         vevent.add("url", ev.link)
+    if ev.categories:
+        vevent.add("categories", list(ev.categories))
     return vevent
 
 
@@ -172,9 +183,10 @@ def build_calendar(
     cal.add("x-published-ttl", "PT12H")
 
     for ev in events:
-        if not deadlines_only:
+        is_deadline_only_row = ev.datum_start is None and ev.deadline is not None
+        if not deadlines_only and ev.datum_start is not None:
             cal.add_component(_create_main_vevent(ev, stamp, default_duration_hours))
-        if include_deadlines or deadlines_only:
+        if include_deadlines or deadlines_only or is_deadline_only_row:
             dl_event = _create_deadline_vevent(ev, stamp)
             if dl_event is not None:
                 cal.add_component(dl_event)

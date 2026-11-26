@@ -15,7 +15,7 @@ from src.notion_client import create_draft_page, fetch_existing_keys
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Ingest an event JSON array into Notion as Drafts (with deduplication)."
+        description="Ingest an event JSON array into Notion as Drafts/Live (with deduplication)."
     )
     parser.add_argument(
         "json_file",
@@ -47,24 +47,27 @@ def main() -> int:
 
     for item in items:
         name = str(item.get("name", "")).strip()
-        datum_start = str(item.get("datum_start", "")).strip()
-        if not name or not datum_start:
-            print(f"Skipping invalid entry (missing name or datum_start): {item}", file=sys.stderr)
+        datum_start = str(item.get("datum_start") or "").strip()
+        deadline = str(item.get("deadline") or "").strip()
+        status = str(item.get("status") or "Draft").strip()
+        if not name or (not datum_start and not deadline and status.lower() != "draft"):
+            print(f"Skipping invalid entry (missing name or date/deadline): {item}", file=sys.stderr)
             skipped += 1
             continue
 
-        key = (" ".join(name.lower().split()), datum_start[:10])
+        ref_date = (datum_start or deadline)[:10]
+        key = (" ".join(name.lower().split()), ref_date)
         if key in existing:
-            print(f"Duplicate skipped: {name} ({datum_start[:10]})")
+            print(f"Duplicate skipped: {name} ({ref_date or 'TBD'})")
             skipped += 1
             continue
 
         if args.dry_run:
-            print(f"[DRY-RUN] Would create Draft: {name} ({datum_start})")
+            print(f"[DRY-RUN] Would create {status}: {name} ({datum_start or deadline or 'TBD'})")
         else:
             item.setdefault("status", "Draft")
             create_draft_page(token, database_id, item)
-            print(f"Created Draft: {name} ({datum_start})")
+            print(f"Created {status}: {name} ({datum_start or deadline or 'TBD'})")
         existing.add(key)
         created += 1
 

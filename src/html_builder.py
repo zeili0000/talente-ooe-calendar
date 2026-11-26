@@ -88,9 +88,9 @@ def build_index_html(
       margin-bottom: 1.25rem;
     }}
     h2 {{ margin: 0 0 0.9rem; font-size: 1.2rem; }}
-    .grid-2 {{
+    .grid-3 {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 1rem;
       margin-bottom: 1rem;
     }}
@@ -109,11 +109,20 @@ def build_index_html(
       color: var(--text);
       font-size: 0.95rem;
     }}
+    .cat-group {{
+      margin-bottom: 0.7rem;
+    }}
+    .cat-group-title {{
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin: 0.35rem 0 0.35rem;
+    }}
     .chips {{
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
-      margin: 0.6rem 0 1.1rem;
+      gap: 0.45rem;
     }}
     .chip {{
       display: inline-flex;
@@ -122,9 +131,9 @@ def build_index_html(
       background: var(--surface-2);
       border: 1px solid var(--border);
       border-radius: 999px;
-      padding: 0.35rem 0.8rem;
+      padding: 0.32rem 0.75rem;
       cursor: pointer;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       user-select: none;
     }}
     .chip input {{ accent-color: var(--accent); }}
@@ -208,17 +217,16 @@ def build_index_html(
     }}
     ol {{ margin: 0.4rem 0 0; padding-left: 1.25rem; color: var(--muted); }}
     li strong {{ color: var(--text); }}
-    .muted {{ color: var(--muted); font-size: 0.85rem; }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Talente OÖ &amp; MINT Event-Kalender</h1>
-    <p class="sub">Kuratierter Kalender für Talente OÖ, Olympiaden und MINT-Events. Letzter Sync: {updated_at} ({total_count} Live-Einträge)</p>
+    <p class="sub">Kuratierter Kalender für Talente OÖ, Olympiaden, Wettbewerbe, Praktika &amp; Events. Letzter Sync: {updated_at} ({total_count} Live-Einträge)</p>
 
     <section class="card">
       <h2>1. Persönlichen Kalender konfigurieren</h2>
-      <div class="grid-2">
+      <div class="grid-3">
         <div>
           <label class="field-label" for="gradeSelect">Schulstufe</label>
           <select id="gradeSelect">
@@ -237,6 +245,14 @@ def build_index_html(
           </select>
         </div>
         <div>
+          <label class="field-label" for="regionSelect">Region</label>
+          <select id="regionSelect">
+            <option value="all">Alle Regionen (OÖ, AT, International)</option>
+            <option value="at">OÖ &amp; Österreich</option>
+            <option value="ooe">Nur OÖ &amp; Online</option>
+          </select>
+        </div>
+        <div>
           <label class="field-label" for="deadlineSelect">Anmeldefristen</label>
           <select id="deadlineSelect">
             <option value="1">Termine + eigene [FRIST]-Events</option>
@@ -247,7 +263,7 @@ def build_index_html(
       </div>
 
       <label class="field-label">Interessen / Kategorien (keine Auswahl = alle)</label>
-      <div id="categoryChips" class="chips"></div>
+      <div id="categoryGroups" style="margin-bottom: 1rem;"></div>
 
       <label class="field-label" for="feedUrl">Deine persönliche Abo-URL (.ics)</label>
       <div class="url-box">
@@ -304,8 +320,9 @@ def build_index_html(
   <script>
     const DATA = JSON.parse(document.getElementById("calendar-data").textContent);
     const gradeSelect = document.getElementById("gradeSelect");
+    const regionSelect = document.getElementById("regionSelect");
     const deadlineSelect = document.getElementById("deadlineSelect");
-    const chipsWrap = document.getElementById("categoryChips");
+    const groupsWrap = document.getElementById("categoryGroups");
     const feedUrlInput = document.getElementById("feedUrl");
     const copyBtn = document.getElementById("copyBtn");
     const webcalBtn = document.getElementById("webcalBtn");
@@ -316,27 +333,62 @@ def build_index_html(
 
     const selectedCats = new Set();
 
-    for (const cat of DATA.categories) {{
-      const label = document.createElement("label");
-      label.className = "chip";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = cat.slug;
-      cb.addEventListener("change", () => {{
-        if (cb.checked) selectedCats.add(cat.slug);
-        else selectedCats.delete(cat.slug);
-        update();
-      }});
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(`${{cat.name}} (${{cat.count}})`));
-      chipsWrap.appendChild(label);
+    const GROUP_DEFS = [
+      {{ title: "Talente OÖ & Community", slugs: ["talente-ooe", "community"] }},
+      {{ title: "Olympiaden", matchPrefix: "olympiade-" }},
+      {{ title: "Wettbewerbe & Themen", slugs: ["mint-tech", "cansat", "politik-wirtschaft", "sprache-kreatives"] }},
+      {{ title: "Chancen & Events", slugs: ["praktika-stipendien", "uni-akademien", "festivals-konferenzen"] }},
+    ];
+
+    const usedSlugs = new Set();
+    function renderGroup(title, cats) {{
+      if (!cats.length) return;
+      const box = document.createElement("div");
+      box.className = "cat-group";
+      const h = document.createElement("div");
+      h.className = "cat-group-title";
+      h.textContent = title;
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const cat of cats) {{
+        usedSlugs.add(cat.slug);
+        const label = document.createElement("label");
+        label.className = "chip";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = cat.slug;
+        cb.addEventListener("change", () => {{
+          if (cb.checked) selectedCats.add(cat.slug);
+          else selectedCats.delete(cat.slug);
+          update();
+        }});
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(`${{cat.name}} (${{cat.count}})`));
+        chips.appendChild(label);
+      }}
+      box.appendChild(h);
+      box.appendChild(chips);
+      groupsWrap.appendChild(box);
     }}
 
-    function matches(ev, grade, cats) {{
+    for (const g of GROUP_DEFS) {{
+      const items = DATA.categories.filter((c) => {{
+        if (g.matchPrefix) return c.slug.startsWith(g.matchPrefix);
+        return (g.slugs || []).includes(c.slug);
+      }});
+      renderGroup(g.title, items);
+    }}
+    const remaining = DATA.categories.filter((c) => !usedSlugs.has(c.slug));
+    renderGroup("Weitere", remaining);
+
+    function matches(ev, grade, cats, region) {{
       if (grade !== null) {{
         if (ev.grade_min !== null && grade < ev.grade_min) return false;
         if (ev.grade_max !== null && grade > ev.grade_max) return false;
       }}
+      const evR = (ev.region_slug || "").toLowerCase();
+      if (region === "ooe" && evR && evR !== "ooe") return false;
+      if (region === "at" && evR && evR !== "ooe" && evR !== "at") return false;
       if (cats.size > 0) {{
         const evSlugs = ev.category_slugs || [];
         if (!evSlugs.some((s) => cats.has(s))) return false;
@@ -344,11 +396,11 @@ def build_index_html(
       return true;
     }}
 
-    function buildUrl(grade, cats, deadlines) {{
+    function buildUrl(grade, cats, deadlines, region) {{
       const pageBase = new URL(".", window.location.href).href.replace(/\\/$/, "");
       if (!DATA.worker_base_url) {{
         workerNotice.hidden = false;
-        workerNotice.textContent = "Hinweis: Personalisierte Filter-URLs benötigen den Cloudflare Worker (WORKER_BASE_URL). Solange dieser nicht gesetzt ist, wird der passende statische Feed verwendet.";
+        workerNotice.textContent = "Hinweis: Personalisierte Filter-URLs benötigen den Cloudflare Worker (WORKER_BASE_URL).";
         if (deadlines === "only" && grade === null && cats.size === 0) return `${{pageBase}}/fristen.ics`;
         if (cats.size === 1 && grade === null && deadlines === "0") {{
           return `${{pageBase}}/${{[...cats][0]}}.ics`;
@@ -359,33 +411,40 @@ def build_index_html(
       const gPart = grade !== null ? `g${{grade}}` : "gall";
       const dPart = `d${{deadlines}}`;
       const cPart = cats.size > 0 ? [...cats].join("_") : "all";
+      if (region !== "all") {{
+        return `${{DATA.worker_base_url}}/cal/${{gPart}}/${{dPart}}/r${{region}}/${{cPart}}.ics`;
+      }}
       return `${{DATA.worker_base_url}}/cal/${{gPart}}/${{dPart}}/${{cPart}}.ics`;
     }}
 
     function update() {{
       const grade = gradeSelect.value ? Number(gradeSelect.value) : null;
+      const region = regionSelect.value || "all";
       const deadlines = deadlineSelect.value;
-      const url = buildUrl(grade, selectedCats, deadlines);
+      const url = buildUrl(grade, selectedCats, deadlines, region);
       feedUrlInput.value = url;
       const webcalUrl = url.replace(/^https?:\\/\\//, "webcal://");
       webcalBtn.href = webcalUrl;
       gcalBtn.href = `https://calendar.google.com/calendar/r?cid=${{encodeURIComponent(webcalUrl)}}`;
 
-      const filtered = DATA.events.filter((ev) => matches(ev, grade, selectedCats));
+      const filtered = DATA.events.filter((ev) => matches(ev, grade, selectedCats, region));
       previewCount.textContent = String(filtered.length);
       previewList.innerHTML = "";
-      for (const ev of filtered.slice(0, 60)) {{
+      for (const ev of filtered.slice(0, 80)) {{
         const row = document.createElement("div");
         row.className = "ev-row";
         const left = document.createElement("div");
         const title = document.createElement("strong");
-        title.textContent = ev.status === "Cancelled" ? `[ABGESAGT] ${{ev.name}}` : ev.name;
+        const baseName = ev.datum_start ? ev.name : `[FRIST] ${{ev.name}}`;
+        title.textContent = ev.status === "Cancelled" ? `[ABGESAGT] ${{baseName}}` : baseName;
         const meta = document.createElement("div");
         meta.className = "ev-meta";
-        const parts = [ev.datum_start.slice(0, 10)];
+        const refDate = (ev.datum_start || ev.deadline || "").slice(0, 10);
+        const parts = refDate ? [refDate] : [];
+        if (ev.region) parts.push(ev.region);
         if (ev.location) parts.push(ev.location);
         if (ev.grade_min !== null && ev.grade_max !== null) parts.push(`${{ev.grade_min}}.-${{ev.grade_max}}. Sst.`);
-        if (ev.deadline) parts.push(`Frist: ${{ev.deadline}}`);
+        if (ev.deadline && ev.datum_start) parts.push(`Frist: ${{ev.deadline}}`);
         meta.textContent = parts.join(" · ");
         left.appendChild(title);
         left.appendChild(meta);
@@ -419,6 +478,7 @@ def build_index_html(
     }});
 
     gradeSelect.addEventListener("change", update);
+    regionSelect.addEventListener("change", update);
     deadlineSelect.addEventListener("change", update);
     update();
   </script>

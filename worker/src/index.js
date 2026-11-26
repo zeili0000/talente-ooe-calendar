@@ -95,6 +95,7 @@ function buildDescription(ev) {
   }
   if (ev.cost) lines.push(`Kosten: ${ev.cost}`);
   if (ev.organizer) lines.push(`Veranstalter: ${ev.organizer}`);
+  if (ev.region) lines.push(`Region: ${ev.region}`);
   if (Array.isArray(ev.categories) && ev.categories.length) {
     lines.push(`Kategorien: ${ev.categories.join(", ")}`);
   }
@@ -109,11 +110,16 @@ function buildDescription(ev) {
   return lines.join("\n").trim();
 }
 
-export function matchesFilters(ev, gradeParam, catSlugsSet) {
+export function matchesFilters(ev, gradeParam, catSlugsSet, regionParam = "all") {
   if (gradeParam !== null && !Number.isNaN(gradeParam)) {
     if (ev.grade_min !== null && ev.grade_min !== undefined && gradeParam < ev.grade_min) return false;
     if (ev.grade_max !== null && ev.grade_max !== undefined && gradeParam > ev.grade_max) return false;
   }
+  const rMode = (regionParam || "all").toLowerCase();
+  const evR = (ev.region_slug || "").toLowerCase();
+  if (rMode === "ooe" && evR && evR !== "ooe") return false;
+  if (rMode === "at" && evR && evR !== "ooe" && evR !== "at") return false;
+
   if (catSlugsSet.size > 0) {
     const slugs = ev.category_slugs || [];
     if (!slugs.some((s) => catSlugsSet.has(s))) return false;
@@ -134,12 +140,17 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
   const deadlinesMode = (searchParams.get("deadlines") || "0").toLowerCase();
   const includeDeadlines = deadlinesMode === "1" || deadlinesMode === "true";
   const deadlinesOnly = deadlinesMode === "only";
+  const regionParam = (searchParams.get("region") || "all").toLowerCase();
 
-  const filtered = (eventsData.events || []).filter((ev) => matchesFilters(ev, grade, catSlugsSet));
+  const filtered = (eventsData.events || []).filter((ev) =>
+    matchesFilters(ev, grade, catSlugsSet, regionParam)
+  );
   const dtstamp = formatUtcStamp(nowDate);
 
   const calTitleParts = ["Talente OÖ & MINT"];
   if (grade !== null && !Number.isNaN(grade)) calTitleParts.push(`${grade}. Sst.`);
+  if (regionParam === "ooe") calTitleParts.push("OÖ");
+  else if (regionParam === "at") calTitleParts.push("AT");
   if (deadlinesOnly) calTitleParts.push("Fristen");
 
   const lines = [
@@ -158,8 +169,9 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
   for (const ev of filtered) {
     const isCancelled = (ev.status || "").toLowerCase() === "cancelled";
     const lastMod = ev.last_edited_time ? formatUtcStamp(new Date(ev.last_edited_time)) : dtstamp;
+    const isDeadlineOnlyRow = !ev.datum_start && Boolean(ev.deadline);
 
-    if (!deadlinesOnly) {
+    if (!deadlinesOnly && ev.datum_start) {
       lines.push("BEGIN:VEVENT");
       lines.push(`UID:${ev.page_id}@${UID_DOMAIN}`);
       lines.push(`DTSTAMP:${dtstamp}`);
@@ -167,7 +179,7 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
       lines.push(`SUMMARY:${escapeIcsText(isCancelled ? `[ABGESAGT] ${ev.name}` : ev.name)}`);
       lines.push(`STATUS:${isCancelled ? "CANCELLED" : "CONFIRMED"}`);
 
-      if (ev.datum_start && ev.datum_start.includes("T")) {
+      if (ev.datum_start.includes("T")) {
         lines.push(`DTSTART;TZID=${VIENNA_TZ}:${toViennaLocalIcs(ev.datum_start)}`);
         let endIso = ev.datum_end;
         if (!endIso) {
@@ -176,7 +188,7 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
           endIso = `${endIso.slice(0, 10)}T23:59:00`;
         }
         lines.push(`DTEND;TZID=${VIENNA_TZ}:${toViennaLocalIcs(endIso)}`);
-      } else if (ev.datum_start) {
+      } else {
         lines.push(`DTSTART;VALUE=DATE:${ev.datum_start.slice(0, 10).replace(/-/g, "")}`);
         const endBase = ev.datum_end && ev.datum_end.slice(0, 10) >= ev.datum_start.slice(0, 10)
           ? ev.datum_end
@@ -194,7 +206,7 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
       lines.push("END:VEVENT");
     }
 
-    if ((includeDeadlines || deadlinesOnly) && ev.deadline && ev.create_deadline_event) {
+    if ((includeDeadlines || deadlinesOnly || isDeadlineOnlyRow) && ev.deadline && ev.create_deadline_event) {
       const d = ev.deadline.slice(0, 10);
       lines.push("BEGIN:VEVENT");
       lines.push(`UID:${ev.page_id}-deadline@${UID_DOMAIN}`);
@@ -204,16 +216,21 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
       lines.push(`STATUS:${isCancelled ? "CANCELLED" : "CONFIRMED"}`);
       lines.push(`DTSTART;VALUE=DATE:${d.replace(/-/g, "")}`);
       lines.push(`DTEND;VALUE=DATE:${addDaysToIsoDate(d, 1)}`);
-      const dlDesc = [
-        `Anmeldeschluss für: ${ev.name}`,
-        `Veranstaltungstermin: ${formatDateDe(ev.datum_start)}`,
-        ev.organizer ? `Veranstalter: ${ev.organizer}` : "",
-        ev.link ? `Anmeldung: ${ev.link}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      lines.push(`DESCRIPTION:${escapeIcsText(dlDesc)}`);
+      if (ev.location) lines.push(`LOCATION:${escapeIcsText(ev.location)}`);
+      const dlDescParts = [`Anmeldeschluss für: ${ev.name}`];
+      if (ev.datum_start) dlDescParts.push(`Veranstaltungstermin: ${formatDateDe(ev.datum_start)}`);
+      if (ev.organizer) dlDescParts.push(`Veranstalter: ${ev.organizer}`);
+      if (ev.region) dlDescParts.push(`Region: ${ev.region}`);
+      if (ev.description && !ev.datum_start) {
+        dlDescParts.push("");
+        dlDescParts.push(ev.description);
+      }
+      if (ev.link) dlDescParts.push(`Anmeldung: ${ev.link}`);
+      lines.push(`DESCRIPTION:${escapeIcsText(dlDescParts.join("\n"))}`);
       if (ev.link) lines.push(`URL:${ev.link}`);
+      if (Array.isArray(ev.categories) && ev.categories.length) {
+        lines.push(`CATEGORIES:${ev.categories.map(escapeIcsText).join(",")}`);
+      }
       lines.push("END:VEVENT");
     }
   }
@@ -223,6 +240,17 @@ export function generateIcsFromEvents(eventsData, searchParams, nowDate = new Da
 }
 
 export function parseParamsFromUrl(url) {
+  const mRegion = url.pathname.match(/^\/cal\/g([^/]+)\/d([^/]+)\/r([^/]+)\/([^/]+)\.ics$/i);
+  if (mRegion) {
+    const params = new URLSearchParams();
+    if (mRegion[1].toLowerCase() !== "all") params.set("grade", mRegion[1]);
+    params.set("deadlines", mRegion[2].toLowerCase());
+    if (mRegion[3].toLowerCase() !== "all") params.set("region", mRegion[3].toLowerCase());
+    if (mRegion[4].toLowerCase() !== "all") {
+      params.set("cats", decodeURIComponent(mRegion[4]).replace(/[_+]/g, ","));
+    }
+    return params;
+  }
   const m = url.pathname.match(/^\/cal\/g([^/]+)\/d([^/]+)\/([^/]+)\.ics$/i);
   if (m) {
     const params = new URLSearchParams();

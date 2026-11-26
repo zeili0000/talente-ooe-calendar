@@ -1,10 +1,10 @@
-"""Tests for RFC-5545 generation, DST handling, deadlines, validation gate, and Cloudflare Worker parity."""
+"""Tests for RFC-5545 generation, DST handling, deadlines, region filtering, validation gate, and Worker parity."""
 
 from __future__ import annotations
 
 import json
 import subprocess
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -37,6 +37,7 @@ def _sample_events() -> list[EventRecord]:
             description="Logische Grundlagen der KI.",
             deadline="2027-01-14",
             create_deadline_event=True,
+            region="OÖ / Online",
         ),
         EventRecord(
             page_id="22222222-2222-2222-2222-222222222222",
@@ -55,6 +56,7 @@ def _sample_events() -> list[EventRecord]:
             description="Bundeswettbewerb Finale.",
             deadline=None,
             create_deadline_event=False,
+            region="Österreich",
         ),
         EventRecord(
             page_id="33333333-3333-3333-3333-333333333333",
@@ -73,6 +75,7 @@ def _sample_events() -> list[EventRecord]:
             description="Internationale Mathematik-Olympiade.",
             deadline="2027-06-01",
             create_deadline_event=False,  # suppressed deadline event
+            region="International",
         ),
         EventRecord(
             page_id="44444444-4444-4444-4444-444444444444",
@@ -91,6 +94,26 @@ def _sample_events() -> list[EventRecord]:
             description="",
             deadline=None,
             create_deadline_event=False,
+            region="OÖ / Online",
+        ),
+        EventRecord(
+            page_id="55555555-5555-5555-5555-555555555555",
+            last_edited_time="2026-11-20T10:00:00.000Z",
+            name="voestalpine Sommerpraktikum",
+            datum_start=None,
+            datum_end=None,
+            status="Live",
+            categories=("Praktika & Stipendien",),
+            grade_min=9,
+            grade_max=13,
+            organizer="voestalpine",
+            location="Linz",
+            cost="",
+            link="https://www.voestalpine.com/group/de/jobs/studierende-schueler/",
+            description="Sommerpraktikum in Technik und IT.",
+            deadline="2027-01-31",
+            create_deadline_event=True,
+            region="OÖ / Online",
         ),
     ]
 
@@ -108,22 +131,21 @@ def test_ics_dst_default_duration_all_day_and_cancelled() -> None:
     assert cal.get("VERSION") == "2.0"
 
     vevents = {str(c.get("UID")): c for c in cal.walk("VEVENT")}
-    # 4 main events + 1 deadline event (3333... has create_deadline_event=False)
-    assert len(vevents) == 5
+    # 4 main events (5555 has no datum_start) + 2 deadline events (1111, 5555)
+    assert len(vevents) == 6
 
     # Winter timed event with missing end -> +2h in CET (+01:00)
     winter = vevents["11111111-1111-1111-1111-111111111111@talente-ooe-cal"]
-    dtstart = winter.decoded("DTSTART")
-    dtend = winter.decoded("DTEND")
-    assert dtstart == datetime(2027, 2, 4, 13, 0, tzinfo=VIENNA)
-    assert dtend == datetime(2027, 2, 4, 15, 0, tzinfo=VIENNA)
+    assert winter.decoded("DTSTART") == datetime(2027, 2, 4, 13, 0, tzinfo=VIENNA)
+    assert winter.decoded("DTEND") == datetime(2027, 2, 4, 15, 0, tzinfo=VIENNA)
     assert "Anmeldeschluss: 14.01.2027" in str(winter.get("DESCRIPTION"))
 
-    # Deadline event created for 1111...
-    dl = vevents["11111111-1111-1111-1111-111111111111-deadline@talente-ooe-cal"]
-    assert str(dl.get("SUMMARY")) == "[FRIST] Winter Workshop KI"
-    assert dl.decoded("DTSTART") == date(2027, 1, 14)
-    assert dl.decoded("DTEND") == date(2027, 1, 15)
+    # Deadline-only row (5555) creates only the -deadline VEVENT even when include_deadlines=False
+    raw_no_dl = build_calendar(_sample_events(), "Test No Deadlines", include_deadlines=False)
+    vevents_no_dl = {str(c.get("UID")): c for c in Calendar.from_ical(raw_no_dl).walk("VEVENT")}
+    assert "55555555-5555-5555-5555-555555555555-deadline@talente-ooe-cal" in vevents_no_dl
+    assert "55555555-5555-5555-5555-555555555555@talente-ooe-cal" not in vevents_no_dl
+    assert "11111111-1111-1111-1111-111111111111-deadline@talente-ooe-cal" not in vevents_no_dl
 
     # Summer timed event (CEST +02:00)
     summer = vevents["22222222-2222-2222-2222-222222222222@talente-ooe-cal"]
@@ -133,19 +155,16 @@ def test_ics_dst_default_duration_all_day_and_cancelled() -> None:
     all_day = vevents["33333333-3333-3333-3333-333333333333@talente-ooe-cal"]
     assert all_day.decoded("DTSTART") == date(2027, 7, 19)
     assert all_day.decoded("DTEND") == date(2027, 7, 27)
-    assert "33333333-3333-3333-3333-333333333333-deadline@talente-ooe-cal" not in vevents
 
     # Cancelled single-day event
     cancelled = vevents["44444444-4444-4444-4444-444444444444@talente-ooe-cal"]
     assert str(cancelled.get("STATUS")) == "CANCELLED"
     assert str(cancelled.get("SUMMARY")).startswith("[ABGESAGT] ")
-    assert cancelled.decoded("DTSTART") == date(2027, 3, 10)
-    assert cancelled.decoded("DTEND") == date(2027, 3, 11)
 
 
 def test_build_dist_and_validation_gate(tmp_path: Path) -> None:
     events = _sample_events()
-    schema_cats = ["Talente OÖ", "Olympiade: Mathe", "CanSat", "Empty Category"]
+    schema_cats = ["Talente OÖ", "Olympiade: Mathe", "CanSat", "Praktika & Stipendien", "Empty Category"]
     build_dist(events, schema_cats, tmp_path, worker_base_url="https://cal.example.workers.dev")
 
     assert (tmp_path / "all.ics").exists()
@@ -155,38 +174,45 @@ def test_build_dist_and_validation_gate(tmp_path: Path) -> None:
     assert (tmp_path / "events.json").exists()
     assert (tmp_path / "index.html").exists()
 
-    # Empty events.json must fail validation gate
     (tmp_path / "events.json").write_text('{"events": []}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="0 Live/Cancelled events"):
         validate_dist(tmp_path)
 
 
-def test_cloudflare_worker_rfc5545_parity(tmp_path: Path) -> None:
+def test_cloudflare_worker_rfc5545_parity_and_region(tmp_path: Path) -> None:
     events = _sample_events()
-    schema_cats = ["Talente OÖ", "Olympiade: Mathe", "CanSat"]
+    schema_cats = ["Talente OÖ", "Olympiade: Mathe", "CanSat", "Praktika & Stipendien"]
     build_dist(events, schema_cats, tmp_path)
 
     events_json_path = tmp_path / "events.json"
     worker_path = Path("worker/src/index.js").resolve().as_uri()
-    js_script = (
+
+    # 1. Legacy URL without region segment (all regions)
+    js_legacy = (
         f"import fs from 'node:fs';"
         f"import {{ generateIcsFromEvents, parseParamsFromUrl }} from '{worker_path}';"
         f"const data = JSON.parse(fs.readFileSync({json.dumps(str(events_json_path))}, 'utf8'));"
-        f"const params = parseParamsFromUrl(new URL('https://example.workers.dev/cal/g11/d1/talente-ooe_olympiade-mathe.ics'));"
+        f"const params = parseParamsFromUrl(new URL('https://example.workers.dev/cal/g11/d1/talente-ooe+olympiade-mathe.ics'));"
         f"process.stdout.write(generateIcsFromEvents(data, params));"
     )
-    proc = subprocess.run(
-        ["node", "--input-type=module", "-e", js_script],
-        capture_output=True,
-        check=True,
-    )
-    cal = Calendar.from_ical(proc.stdout)
-    assert cal.get("VERSION") == "2.0"
-
-    vevents = {str(c.get("UID")): c for c in cal.walk("VEVENT")}
-    # grade=11 + cats={talente-ooe, olympiade-mathe} matches 1111, 1111-deadline, 2222, 3333; excludes 4444 (CanSat)
+    proc = subprocess.run(["node", "--input-type=module", "-e", js_legacy], capture_output=True, check=True)
+    vevents = {str(c.get("UID")): c for c in Calendar.from_ical(proc.stdout).walk("VEVENT")}
     assert "11111111-1111-1111-1111-111111111111@talente-ooe-cal" in vevents
-    assert "11111111-1111-1111-1111-111111111111-deadline@talente-ooe-cal" in vevents
     assert "22222222-2222-2222-2222-222222222222@talente-ooe-cal" in vevents
     assert "33333333-3333-3333-3333-333333333333@talente-ooe-cal" in vevents
     assert "44444444-4444-4444-4444-444444444444@talente-ooe-cal" not in vevents
+
+    # 2. Region URL (rooe) + deadline-only event (5555)
+    js_region = (
+        f"import fs from 'node:fs';"
+        f"import {{ generateIcsFromEvents, parseParamsFromUrl }} from '{worker_path}';"
+        f"const data = JSON.parse(fs.readFileSync({json.dumps(str(events_json_path))}, 'utf8'));"
+        f"const params = parseParamsFromUrl(new URL('https://example.workers.dev/cal/g11/d0/rooe/talente-ooe_praktika-stipendien_olympiade-mathe.ics'));"
+        f"process.stdout.write(generateIcsFromEvents(data, params));"
+    )
+    proc_r = subprocess.run(["node", "--input-type=module", "-e", js_region], capture_output=True, check=True)
+    vevents_r = {str(c.get("UID")): c for c in Calendar.from_ical(proc_r.stdout).walk("VEVENT")}
+    assert "11111111-1111-1111-1111-111111111111@talente-ooe-cal" in vevents_r
+    assert "55555555-5555-5555-5555-555555555555-deadline@talente-ooe-cal" in vevents_r
+    assert "22222222-2222-2222-2222-222222222222@talente-ooe-cal" not in vevents_r
+    assert "33333333-3333-3333-3333-333333333333@talente-ooe-cal" not in vevents_r

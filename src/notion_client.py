@@ -19,7 +19,7 @@ class EventRecord:
     page_id: str
     last_edited_time: str
     name: str
-    datum_start: str
+    datum_start: str | None
     datum_end: str | None
     status: str
     categories: tuple[str, ...]
@@ -32,6 +32,7 @@ class EventRecord:
     description: str
     deadline: str | None
     create_deadline_event: bool
+    region: str = ""
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -66,11 +67,20 @@ def _parse_page(page: dict[str, Any]) -> EventRecord | None:
     props = page.get("properties", {})
     name = _plain_text(props.get("Name", {}).get("title", []))
     datum = props.get("Datum", {}).get("date")
-    if not name or not datum or not datum.get("start"):
+    datum_start = datum.get("start") if datum else None
+    datum_end = datum.get("end") if datum else None
+
+    deadline_obj = props.get("Anmeldefrist", {}).get("date")
+    deadline = deadline_obj.get("start") if deadline_obj else None
+
+    if not name or (not datum_start and not deadline):
         return None
 
     status_obj = props.get("Status", {}).get("select")
     status = status_obj.get("name", "Draft") if status_obj else "Draft"
+
+    region_obj = props.get("Region", {}).get("select")
+    region = region_obj.get("name", "") if region_obj else ""
 
     cats = tuple(
         opt["name"]
@@ -81,17 +91,14 @@ def _parse_page(page: dict[str, Any]) -> EventRecord | None:
     g_min = props.get("Schulstufe von", {}).get("number")
     g_max = props.get("Schulstufe bis", {}).get("number")
 
-    deadline_obj = props.get("Anmeldefrist", {}).get("date")
-    deadline = deadline_obj.get("start") if deadline_obj else None
-
     frist_checkbox = props.get("Frist-Event", {}).get("checkbox", False)
 
     return EventRecord(
         page_id=page["id"],
         last_edited_time=page.get("last_edited_time", ""),
         name=name,
-        datum_start=datum["start"],
-        datum_end=datum.get("end"),
+        datum_start=datum_start,
+        datum_end=datum_end,
         status=status,
         categories=cats,
         grade_min=int(g_min) if g_min is not None else None,
@@ -103,6 +110,7 @@ def _parse_page(page: dict[str, Any]) -> EventRecord | None:
         description=_plain_text(props.get("Beschreibung", {}).get("rich_text", [])),
         deadline=deadline,
         create_deadline_event=bool(frist_checkbox and deadline),
+        region=region,
     )
 
 
@@ -112,7 +120,7 @@ def fetch_events(
     statuses: tuple[str, ...] = ("Live", "Cancelled"),
     client: httpx.Client | None = None,
 ) -> list[EventRecord]:
-    """Fetch all paginated events matching the given Notion Status values."""
+    """Fetch all paginated events matching the given Notion Status values, sorted chronologically."""
     own_client = client is None
     http = client or httpx.Client(timeout=30.0)
     try:
@@ -124,7 +132,6 @@ def fetch_events(
         while True:
             body: dict[str, Any] = {
                 "filter": filter_payload,
-                "sorts": [{"property": "Datum", "direction": "ascending"}],
                 "page_size": 100,
             }
             if cursor:
@@ -143,6 +150,7 @@ def fetch_events(
             if not payload.get("has_more"):
                 break
             cursor = payload.get("next_cursor")
+        events.sort(key=lambda e: (e.datum_start or e.deadline or "9999-12-31", e.name.lower()))
         return events
     finally:
         if own_client:
@@ -150,7 +158,7 @@ def fetch_events(
 
 
 def fetch_existing_keys(token: str, database_id: str, client: httpx.Client | None = None) -> set[tuple[str, str]]:
-    """Fetch normalized (lowercase name, YYYY-MM-DD start) pairs for deduplication."""
+    """Fetch normalized (lowercase name, YYYY-MM-DD start/deadline) pairs for deduplication."""
     own_client = client is None
     http = client or httpx.Client(timeout=30.0)
     try:
@@ -168,9 +176,15 @@ def fetch_existing_keys(token: str, database_id: str, client: httpx.Client | Non
             resp.raise_for_status()
             payload = resp.json()
             for page in payload.get("results", []):
-                parsed = _parse_page(page)
-                if parsed is not None:
-                    keys.add((" ".join(parsed.name.lower().split()), parsed.datum_start[:10]))
+                props = page.get("properties", {})
+                name = _plain_text(props.get("Name", {}).get("title", []))
+                datum = props.get("Datum", {}).get("date")
+                d_start = datum.get("start") if datum else None
+                dl = props.get("Anmeldefrist", {}).get("date")
+                dl_start = dl.get("start") if dl else None
+                if name:
+                    ref_date = (d_start or dl_start or "")[:10]
+                    keys.add((" ".join(name.lower().split()), ref_date))
             if not payload.get("has_more"):
                 break
             cursor = payload.get("next_cursor")
@@ -186,20 +200,22 @@ def create_draft_page(
     event_data: dict[str, Any],
     client: httpx.Client | None = None,
 ) -> dict[str, Any]:
-    """Create a single Draft event page in the Notion database."""
+    """Create a single event page in the Notion database."""
     own_client = client is None
     http = client or httpx.Client(timeout=30.0)
     try:
-        datum_obj: dict[str, Any] = {"start": event_data["datum_start"]}
-        if event_data.get("datum_end"):
-            datum_obj["end"] = event_data["datum_end"]
-
         props: dict[str, Any] = {
             "Name": {"title": [{"text": {"content": event_data["name"]}}]},
-            "Datum": {"date": datum_obj},
             "Status": {"select": {"name": event_data.get("status", "Draft")}},
             "Frist-Event": {"checkbox": bool(event_data.get("deadline"))},
         }
+        if event_data.get("datum_start"):
+            datum_obj: dict[str, Any] = {"start": event_data["datum_start"]}
+            if event_data.get("datum_end"):
+                datum_obj["end"] = event_data["datum_end"]
+            props["Datum"] = {"date": datum_obj}
+        if event_data.get("region"):
+            props["Region"] = {"select": {"name": event_data["region"]}}
         if event_data.get("categories"):
             props["Kategorie"] = {
                 "multi_select": [{"name": c} for c in event_data["categories"]]
