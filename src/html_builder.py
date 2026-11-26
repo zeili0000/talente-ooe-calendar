@@ -276,7 +276,7 @@ def build_index_html(
     </section>
 
     <section class="card">
-      <h2>2. Vorschau (<span id="previewCount">0</span> passende Termine)</h2>
+      <h2>2. Vorschau (<span id="previewCount">0</span> kommende Termine)</h2>
       <div id="previewList" class="preview-list"></div>
     </section>
 
@@ -440,7 +440,21 @@ def build_index_html(
       webcalBtn.href = webcalUrl;
       gcalBtn.href = `https://calendar.google.com/calendar/r?cid=${{encodeURIComponent(webcalUrl)}}`;
 
-      const filtered = DATA.events.filter((ev) => matches(ev, grade, selectedCats, region));
+      const todayIso = new Date().toLocaleDateString("sv-SE");
+      const filtered = DATA.events
+        .filter((ev) => {{
+          if (!matches(ev, grade, selectedCats, region)) return false;
+          if (deadlines === "only") {{
+            return Boolean(ev.deadline && ev.create_deadline_event && ev.deadline.slice(0, 10) >= todayIso);
+          }}
+          const endRef = (ev.datum_end || ev.datum_start || ev.deadline || "").slice(0, 10);
+          return endRef >= todayIso;
+        }})
+        .sort((a, b) => {{
+          const ka = deadlines === "only" ? a.deadline : (a.datum_start || a.deadline || "9999-12-31");
+          const kb = deadlines === "only" ? b.deadline : (b.datum_start || b.deadline || "9999-12-31");
+          return ka.localeCompare(kb) || a.name.localeCompare(b.name);
+        }});
       previewCount.textContent = String(filtered.length);
       previewList.innerHTML = "";
       for (const ev of filtered.slice(0, 80)) {{
@@ -448,16 +462,17 @@ def build_index_html(
         row.className = "ev-row";
         const left = document.createElement("div");
         const title = document.createElement("strong");
-        const baseName = ev.datum_start ? ev.name : `[FRIST] ${{ev.name}}`;
+        const isDeadlineRow = deadlines === "only" || !ev.datum_start;
+        const baseName = isDeadlineRow ? `[FRIST] ${{ev.name}}` : ev.name;
         title.textContent = ev.status === "Cancelled" ? `[ABGESAGT] ${{baseName}}` : baseName;
         const meta = document.createElement("div");
         meta.className = "ev-meta";
-        const refDate = (ev.datum_start || ev.deadline || "").slice(0, 10);
+        const refDate = (deadlines === "only" ? ev.deadline : (ev.datum_start || ev.deadline || "")).slice(0, 10);
         const parts = refDate ? [refDate] : [];
         if (ev.region) parts.push(ev.region);
         if (ev.location) parts.push(ev.location);
         if (ev.grade_min !== null && ev.grade_max !== null) parts.push(`${{ev.grade_min}}.-${{ev.grade_max}}. Sst.`);
-        if (ev.deadline && ev.datum_start) parts.push(`Frist: ${{ev.deadline}}`);
+        if (deadlines !== "only" && ev.deadline && ev.datum_start) parts.push(`Frist: ${{ev.deadline}}`);
         meta.textContent = parts.join(" · ");
         left.appendChild(title);
         left.appendChild(meta);
